@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SkillBridge AI — Admin Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{--bg:#f5f7fb;--panel:#fff;--ink:#172033;--muted:#697386;--line:#e5e9f2;--brand:#5b5ce2;--red:#b42318;--green:#16876b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px Inter,system-ui,Segoe UI,Arial,sans-serif}button,input{font:inherit}button{cursor:pointer;border:0;border-radius:10px;padding:10px 14px;background:var(--brand);color:white;font-weight:700}button.secondary{background:#eef0ff;color:#393ab1}button.danger{background:#b42318}button:disabled{opacity:.5;cursor:not-allowed}.wrap{max-width:1200px;margin:auto;padding:24px}.top{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:22px}.brand{font-weight:850;font-size:23px;letter-spacing:-.6px}.brand span{color:var(--brand)}.muted{color:var(--muted)}.panel,.stat{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:0 8px 25px #202a4b08}.login{max-width:430px;margin:8vh auto}.login h1{margin-top:0}.field{display:grid;gap:7px;margin:14px 0}.field input{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;background:white;color:var(--ink)}.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:18px}.stat .label{color:var(--muted);font-size:13px}.stat .num{font-size:29px;font-weight:850;margin-top:6px}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}.tabs button.active{background:var(--brand);color:white}.tabs button:not(.active){background:#e9ebf4;color:#384054}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:650px}th,td{text-align:left;padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:top}th{font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}td{overflow-wrap:anywhere}.status{padding:4px 8px;border-radius:20px;background:#eef0ff;display:inline-block;font-size:12px}.notice{padding:12px 14px;border-radius:10px;background:#eef0ff;margin:12px 0}.error{background:#fff0ee;color:#8e2119}.hidden{display:none!important}.section-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.small{font-size:12px}.empty{padding:24px;text-align:center;color:var(--muted)}@media(max-width:700px){.wrap{padding:14px}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.stat{padding:15px}.stat .num{font-size:24px}}
+</style></head>
+<body><main class="wrap">
+<header class="top"><div class="brand">SkillBridge <span>AI</span> <small class="muted">/ Admin</small></div><div id="topActions" class="hidden"><span id="who" class="muted"></span> <button class="secondary" id="refreshBtn">Refresh</button> <button id="logoutBtn">Log out</button></div></header>
+<section id="loginPanel" class="panel login"><h1>Admin sign in</h1><p class="muted">Sign in using your existing SkillBridge account. Only the account explicitly authorized in Supabase can open the dashboard data.</p><div id="loginNotice" class="notice hidden"></div><form id="loginForm"><label class="field">Email<input id="email" type="email" autocomplete="username" required></label><label class="field">Password<input id="password" type="password" autocomplete="current-password" required></label><button id="loginBtn" type="submit" style="width:100%">Sign in</button></form><p class="muted small">This page does not create accounts or store your password.</p></section>
+<section id="dashboard" class="hidden">
+<div id="notice" class="notice hidden"></div>
+<div class="stats" id="stats"></div>
+<div class="panel">
+<div class="section-head"><h2 style="margin:0 0 14px">Platform management</h2><span class="muted small">Read-only student/request view • review removal requires confirmation</span></div>
+<div class="tabs"><button class="active" data-tab="students">Students</button><button data-tab="requests">Skill requests</button><button data-tab="reviews">Ratings & reviews</button></div>
+<div id="studentsTab" class="tabContent"><div class="table-wrap"><table><thead><tr><th>Student</th><th>Level</th><th>Teaches</th><th>Wants to learn</th><th>Updated</th></tr></thead><tbody id="studentsRows"></tbody></table></div></div>
+<div id="requestsTab" class="tabContent hidden"><div class="table-wrap"><table><thead><tr><th>Request ID</th><th>Sender ID</th><th>Receiver ID</th><th>Status</th><th>Created</th></tr></thead><tbody id="requestsRows"></tbody></table></div></div>
+<div id="reviewsTab" class="tabContent hidden"><div class="table-wrap"><table><thead><tr><th>Rating</th><th>Review</th><th>Reviewer ID</th><th>Reviewee ID</th><th>Created</th><th>Action</th></tr></thead><tbody id="reviewsRows"></tbody></table></div></div>
+</div><p class="muted small">Admin actions are checked by Supabase on every RPC call. Keep this HTML page private if you prefer; security comes from database authorization, not from hiding the page.</p>
+</section>
+</main>
+<script>
+const SUPABASE_URL = 'https://gryskhoqezsohjphxkif.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_sxvMnSvTnNY1B8dV_HnHvg_x67SKcv2';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const $ = id => document.getElementById(id);
+let activeTab='students', cached=null;
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function date(v){if(!v)return '—';const d=new Date(v);return Number.isNaN(d.getTime())?'—':d.toLocaleString();}
+function notice(message,isError=false,login=false){const el=$(login?'loginNotice':'notice');el.textContent=message;el.classList.toggle('hidden',!message);el.classList.toggle('error',isError);}
+function setLoggedIn(user){$('loginPanel').classList.toggle('hidden',!!user);$('dashboard').classList.add('hidden');$('topActions').classList.toggle('hidden',!user);$('who').textContent=user?.email||'';}
+function emptyRow(cols,msg){return `<tr><td colspan="${cols}" class="empty">${esc(msg)}</td></tr>`;}
+async function loadDashboard(){
+ notice(''); $('refreshBtn').disabled=true;
+ const {data,error}=await sb.rpc('skillbridge_admin_overview');
+ $('refreshBtn').disabled=false;
+ if(error){$('dashboard').classList.add('hidden');setLoggedIn(await currentUser());$('loginPanel').classList.remove('hidden');notice('Admin access denied or setup incomplete. Check that your user ID was inserted into skillbridge_admins and that the Admin SQL ran without errors. Details: '+error.message,true,true);return;}
+ cached=data;
+ $('loginPanel').classList.add('hidden');$('dashboard').classList.remove('hidden');
+ const items=[['Students',data.students],['Skill requests',data.requests],['Accepted requests',data.accepted_requests],['Pending requests',data.pending_requests],['Messages',data.messages],['Ratings & reviews',data.reviews]];
+ $('stats').innerHTML=items.map(([label,num])=>`<div class="stat"><div class="label">${esc(label)}</div><div class="num">${Number(num)||0}</div></div>`).join('');
+ $('studentsRows').innerHTML=(data.recent_students||[]).map(x=>`<tr><td><b>${esc(x.name||'Unnamed student')}</b><div class="muted small">${esc(x.id)}</div></td><td>${esc(x.level||'—')}</td><td>${esc(x.teach||'—')}</td><td>${esc(x.learn||'—')}</td><td>${esc(date(x.updated_at))}</td></tr>`).join('')||emptyRow(5,'No student profiles found.');
+ $('requestsRows').innerHTML=(data.recent_requests||[]).map(x=>`<tr><td>${esc(x.id)}</td><td>${esc(x.sender_id)}</td><td>${esc(x.receiver_id)}</td><td><span class="status">${esc(x.status)}</span></td><td>${esc(date(x.created_at))}</td></tr>`).join('')||emptyRow(5,'No skill requests found.');
+ $('reviewsRows').innerHTML=(data.recent_reviews||[]).map(x=>`<tr><td><b>${'★'.repeat(Number(x.rating)||0)}${'☆'.repeat(5-(Number(x.rating)||0))}</b><div>${Number(x.rating)||0}/5</div></td><td>${esc(x.review_text||'—')}</td><td>${esc(x.reviewer_id)}</td><td>${esc(x.reviewee_id)}</td><td>${esc(date(x.created_at))}</td><td><button class="danger" data-delete-review="${esc(x.id)}">Delete</button></td></tr>`).join('')||emptyRow(6,'No reviews found.');
+ showTab(activeTab);
+}
+async function currentUser(){const {data}=await sb.auth.getUser();return data.user||null;}
+$('loginForm').addEventListener('submit',async e=>{e.preventDefault();$('loginBtn').disabled=true;notice('');const {error}=await sb.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});$('loginBtn').disabled=false;if(error){notice(error.message,true,true);return;}const user=await currentUser();setLoggedIn(user);await loadDashboard();});
+$('logoutBtn').addEventListener('click',async()=>{await sb.auth.signOut();cached=null;setLoggedIn(null);notice('');});
+$('refreshBtn').addEventListener('click',loadDashboard);
+function showTab(tab){activeTab=tab;document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));['students','requests','reviews'].forEach(t=>$(t+'Tab').classList.toggle('hidden',t!==tab));}
+document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>showTab(b.dataset.tab)));
+$('reviewsRows').addEventListener('click',async e=>{const btn=e.target.closest('[data-delete-review]');if(!btn)return;const id=btn.dataset.deleteReview;if(!confirm('Permanently delete this review? This cannot be undone.'))return;btn.disabled=true;const {error}=await sb.rpc('skillbridge_admin_delete_review',{p_review_id:id});if(error){notice('Could not delete review: '+error.message,true);btn.disabled=false;return;}notice('Review deleted.');await loadDashboard();});
+sb.auth.onAuthStateChange(async(_event,session)=>{if(session?.user){setLoggedIn(session.user);await loadDashboard();}else{setLoggedIn(null);}});
+(async()=>{const user=await currentUser();if(user){setLoggedIn(user);await loadDashboard();}})();
+</script></body></html>
